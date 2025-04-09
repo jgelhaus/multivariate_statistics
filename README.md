@@ -1,3 +1,3 @@
-# multivariate_statistics1
+# multivariate_statistics
 
 ### Multivariate statistics project using R and Quattro.
