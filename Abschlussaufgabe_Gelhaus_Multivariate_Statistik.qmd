@@ -1,0 +1,979 @@
+---
+title: "Multivariate Statistik WS 2023/24"
+author: "Johanna Gelhaus"
+  
+format: html
+editor: visual
+crossref:
+  fig-title: Abbildung     # (default is "Figure")
+  tbl-title: Tabelle     # (default is "Table")
+  fig-prefix: Abbildung   # (default is "Figure")
+  tbl-prefix: Tabelle # (default is "Table")
+  sec-prefix: Abschnitt
+link-citations: true
+code-overflow: wrap
+---
+
+# Auswertung
+
+## 1. Verwendete Pakete
+
+```{r}
+#| label: load-packages
+#| warning: false
+#| message: false
+library(vegan)
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(RColorBrewer)
+library(cluster)
+library(gridExtra)
+library(indicspecies)
+```
+
+## 2. Bereinigung der Daten
+
+Es wurden zunächst Daten von Vegetationsaufnahmen aus dem Jahr 1994 und 1995 aus einem Grünlandversuch eines Forschungsprojektes zur Renaturierung von Niedermooren im [Rhinlurch](https://de.wikipedia.org/wiki/Rhinluch) eingelesen. Einträge, die nicht auf Artniveau bestimmt waren oder dessen Bestimmungen unklar waren, wurden gelöscht. Doppelungen der Artnamen wurden bereinigt. Die Datensätze wurden auch auf Arten gefiltert, die garnicht vorkommen, was jedoch nicht der Fall war.
+
+```{r}
+#| label: load and filter data
+#| warning: false
+#| message: false
+#| results: hide
+
+Rl_94 <- read.csv("Rhinlurch_1994.csv", head=T, row.names=1, sep=';', dec = ',')
+Rl_95 <- read.csv("Rhinlurch_1995.csv", head=T, row.names=1, sep=';', dec = ',')
+Rl_94 <- Rl_94[-which(rownames(Rl_94) %in% c("Barbarea cf stricta", "Epilobium sp.","Festuca rubra agg.","Glyceria cf declinata","Poa prat + triv","Polygonum cf persicaria")),]
+
+Rl_95 <- Rl_95[-which(rownames(Rl_95) %in% c("Barbarea/Rorippa", "Carex cf nigra","Cf Atriplex","Cf Stellaria media","Cf Taraxacum off. agg.","Characeae spec.","Chenopodium spec.","Cirsium cf oleraceum","Cirsium spec.","Epilobium spec.","Glyceria cf declinata","Poa cf trivialis","Poa spec.","Ranunculus spec.","Rumex cf crispus","Rumex spec.","Salix spec.","Solidago/Conyza","Stellaria spec.")),]
+
+Rl_94 <- t(Rl_94)
+Rl_95 <- t(Rl_95)
+Rl_94 <- Rl_94[,specnumber(Rl_94, MARGIN = 2)>0]
+Rl_95 <- Rl_95[,specnumber(Rl_95, MARGIN = 2)>0]
+```
+
+## 3. Übersicht über die Daten
+
+In beiden Jahren wurden jeweils 35 Sites untersucht. Davon befanden sich jeweils 20 Sites auf den Grünlandflächen mit dem Namen "Potsdamer Platz" (PP) und 15 Sites auf der "Fennwiese" (FW). Abgesehen von den herausgefilterten Arten wurden 1994 108 Arten und 1995 102 Arten kartiert. Durchschnittlich wurden 1994 etwa 15.3 Arten pro Vegetationsaufnahme kartiert, während es 1995 15.9 Arten waren. In beiden Jahren wurden die meisten Arten wurden bei Site FW42 kartiert. 1994 waren es 35 und 1994 38 Arten. Die wenigsten Arten wurden 1994 bei der Vegetationsaufnahme PP19 mit 5 Arten und 1995 bei PP07 und PP08 mit jeweils 3 Arten kartiert.
+
+```{r}
+#| results: hide
+#| code-fold: true
+#| code-summary: 'Code zur ersten Analyse der Daten'
+
+nrow(Rl_94) 
+nrow(Rl_95) 
+ncol(Rl_94) 
+ncol(Rl_95) 
+# Durchschnittliche Artenzahl
+mean(specnumber(Rl_94, MARGIN = 1)) 
+mean(specnumber(Rl_95, MARGIN = 1)) 
+
+# Maximale Artenzahl pro Fläche
+max_occurrences_site_94 <- which.max(specnumber(Rl_94, MARGIN = 1))
+max_occurrences_site_94 
+specnumber(Rl_94[max_occurrences_site_94,],MARGIN = 1)
+
+max_occurrences_site_95 <- which.max(specnumber(Rl_95, MARGIN = 1))
+max_occurrences_site_95
+specnumber(Rl_95[max_occurrences_site_95,],MARGIN = 1) 
+
+# Am häufigsten vorkommende Art
+max_occurrences_index_94 <- which.max(specnumber(Rl_94, MARGIN = 2))
+max_occurrences_index_94 
+specnumber(Rl_94[,max_occurrences_index_94],MARGIN = 2) 
+
+max_occurrences_index_95 <- which.max(specnumber(Rl_95, MARGIN = 2))
+max_occurrences_index_95
+specnumber(Rl_95[,max_occurrences_index_95],MARGIN = 2) 
+
+```
+
+Der Plot der Artenanzahl pro Vegetationsaufnahme (@fig-species_per_site) zeigt, dass die artenreichsten Vegetationsaufnahmen sowohl in 1994 als auch in 1995 Standorte der Fennwiese waren und die weniger artenreichen tendentiell eher Orte des Potsdamer Platzes. Außerdem ist erkennbar, dass artenreiche Standorte tendentiell noch artenreicher geworden sind, während ein paar andere Standorte wie z.B. PP07 oder PP08 sehr stark an Artenreichtum verloren haben.
+
+```{r}
+#| output: false
+#| code-fold: true
+#| code-summary: 'Code für das Plotten der Artenzahlen pro Fläche in 1994 und 1995'
+spec_num_94<-data.frame("Artenanzahl94"=specnumber(Rl_94, MARGIN = 1)) 
+sorted_spec_num_94 <- spec_num_94 %>% 
+  arrange(desc(Artenanzahl94))
+
+spec_num_95<-data.frame("Artenanzahl95"=specnumber(Rl_95, MARGIN = 1)) 
+sorted_spec_num_95 <- spec_num_95 %>% 
+  arrange(desc(Artenanzahl95))
+
+max_value <- max(max(sorted_spec_num_95$Artenanzahl95), max(sorted_spec_num_94$Artenanzahl94))
+
+plot1 <- ggplot(sorted_spec_num_94, aes(x = reorder(row.names(sorted_spec_num_94), Artenanzahl94), y = Artenanzahl94)) +
+  geom_col(fill="skyblue") +
+  labs(x = "Vegetationsaufnahmen '94", y = "Artenanzahl") +
+  ylim(0, max_value) +  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=12))
+
+plot2 <- ggplot(sorted_spec_num_95, aes(x = reorder(row.names(sorted_spec_num_95), Artenanzahl95), y = Artenanzahl95)) +
+  geom_col(fill="skyblue") +
+  labs(x = "Vegetationsaufnahmen '95", y = "Artenanzahl") +
+  ylim(0, max_value) +  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=12))
+```
+
+```{r}
+#| label: fig-species_per_site
+#| fig-cap: Anzahl der Arten pro Vegetationsaufnahme
+#| fig-width: 14
+#| out-width: 100%
+grid.arrange(plot1, plot2, ncol = 2)
+
+```
+
+Um die Entwicklung der Artenzahlen noch etwas klarer herausszustellen wird in @fig-species_evolution_plot die Differenz der Artenanzahl auf den Flächen zwischen 1994 und 1995 dargestellt.
+
+```{r}
+#| label: fig-species_evolution_plot
+#| fig-cap: "Differenz kartierter Arten zwischen 1995 und 1994"
+#| code-overflow: wrap
+
+species_evolution <- data.frame("Rl_94"=specnumber(Rl_94, MARGIN = 1),"Rl_95"= specnumber(Rl_95, MARGIN = 1),"Differenz" =(specnumber(Rl_95, MARGIN = 1)-specnumber(Rl_94, MARGIN = 1)))
+
+sorted_species_evolution <- species_evolution %>% 
+  arrange(desc(Differenz))
+
+ggplot(sorted_species_evolution, aes(x = reorder(row.names(sorted_species_evolution), -Differenz), y = Differenz)) +
+  geom_col(fill="skyblue") +
+  labs(x = "Vegetationsaufnahmen", y = "Differenz Artenanzahl") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+Die größte Abnahme der Arten wurde bei PP07 mit -9 Arten festgestellt, während FW34 die größte Zunahme von 11 zusätzlichen Arten zeigte.
+
+Die erste Analyse hat gezeigt, dass die Art, die in beiden Jahren am häufigsten vorkam, *Phalaris arundinacea* war. Sie kam in beiden Jahren auf 30 Sites vor. *Phalaris arundinacea* oder das Rohrglanzgras gehört zur Familie der Süßgräser (1). Die Pflanze gilt nach den Zeigerwerten nach Ellenberg als Nässeezeiger (2). @fig-species_counts zeigt, dass 1994 die zweithäufigste bzw. 1995 die dritthäufigste Art *Cirsium arvense* war. *Cirsium arvense* oder die Acker-Kratzdiestel gehört zu der Familie der Korbblüter (3). Die Pflanze ist eine Lichtpflanze und an stickstoffreichen Standorten häufiger zu finden (4). Bezüglich der Feuchtigkeitsansprüche zeigt die Pflanze eher ein indifferentes Verhalten. Die dritthäufigste Art 1994 und die zweithäufigste Art 1995 war *Urtica dioica* oder die Große Brennessel, die zu der Familie der Urticaceae gehört (5). Entsprechend der Zeigerwerte nach Ellenberg ist die Pflanze ein ausgesprochener Stickstoffzeiger und ein Frische- bis Feuchtezeiger (6).
+
+```{r}
+#| output: false
+#| code-fold: true
+#| code-summary: 'Code für das Plotten der Vorkommensanzahl je Art in 1994 und 1995'
+
+site_count_94<-data.frame("Sites94"=specnumber(Rl_94, MARGIN = 2)) 
+sorted_site_count_94 <- site_count_94 %>% 
+  arrange(desc(Sites94))
+
+site_count_95<-data.frame("Sites95"=specnumber(Rl_95, MARGIN = 2)) 
+sorted_site_count_95 <- site_count_95 %>% 
+  arrange(desc(Sites95))
+
+sorted_site_count_94 <- head(sorted_site_count_94, 30)
+sorted_site_count_95 <- head(sorted_site_count_95, 30)
+max_value2 <- max(max(site_count_95$Sites95), max(site_count_94$Sites94))
+
+plot3 <- ggplot(sorted_site_count_94, aes(x = reorder(row.names(sorted_site_count_94), Sites94), y = Sites94)) +
+  geom_col(fill="yellowgreen") +
+  labs(x = "Vegetationsaufnahmen '94", y = "Anzahl an Beobachtungen") +
+  ylim(0, max_value2) +  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, face = "italic", size=12))
+
+plot4 <- ggplot(sorted_site_count_95, aes(x = reorder(row.names(sorted_site_count_95), Sites95), y = Sites95)) +
+  geom_col(fill="yellowgreen") +
+  labs(x = "Vegetationsaufnahmen '95", y = "Anzahl an Beobachtunge") +
+  ylim(0, max_value2) +  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, face = "italic", size=12))
+```
+
+```{r}
+#| label: fig-species_counts
+#| fig-cap: Vorkommenanzahl der 30 häufigsten Arten pro Jahr
+#| fig-width: 14
+#| out-width: 100%
+grid.arrange(plot3, plot4, ncol = 2)
+```
+
+## 4. Ordination
+
+### 4.1. Erstellen der NMDS
+
+Hier wurde eine Ordination mit der NMDS-Methode durchgeführt, da die NMDS keine bestimmte Verteilung der Variablen fordert und deutlich robuster als die Hauptkomponenten- und Korrespondenzanalyse ist. Korrespondenzanalysen produzieren häufig Artefakte. Als Distanzmaß wurde die Bray-Curtis-Distanz verwendet, da es sich bei den Daten um quantitative Daten handelt. Zunächst werden die Daten gefiltert, da das Entfernen von seltenen Arten zu besseren Ergebnissen führt. Außerdem werden die Daten skaliert, um Arten mit sehr großer Deckung weniger einflussreich zu machen. Die Schritte werden parallel für beide Jahre durchgeführt
+
+```{r}
+#| output: false
+veg_fil_94 <- Rl_94[,specnumber(Rl_94, MARGIN = 2)>2]
+veg_scale_94 <- sqrt(veg_fil_94)
+
+veg_fil_95 <- Rl_95[,specnumber(Rl_95, MARGIN = 2)>2]
+veg_scale_95 <- sqrt(veg_fil_95)
+
+
+```
+
+Im folgenden wird die Bray-Curtis-Distanz berechnet und eine NMDS mit mindestens 20 und maximal 2000 zufälligen Starts berechnet:
+
+```{r}
+#| output: false
+veg_dist_94 <- vegdist(veg_scale_94, distance="Bray")
+nmds_vegetation_94 <- metaMDS(veg_dist_94,  k=2, try=20, trymax=2000)
+nmds_vegetation_94$stress
+veg_dist_95 <- vegdist(veg_scale_95, distance="Bray")
+nmds_vegetation_95 <- metaMDS(veg_dist_95,  k=2, try=20, trymax=2000)
+nmds_vegetation_95$stress
+```
+
+Ziel der NMMDS ist, dass die Unähnlichkeit der Ausgangsdaten möglichst der Unähnlichkeit im dimensionsreduzierten Raum ähnelt. Das wird über das Stress-Maß berechnet, bei dem Ränge von Datenpaaren in den Ausgangsdaten und den dimensionsreduzierten Daten verglichen werden. Die Distanz der Datenpaare in den AUsgangsdaten soll dabei möglichst der Distanz in der Ordination entsprechen. Der Stress liegt 1994 bei etwa 0.107 und 1995 bei etwa 0.109. Werte rund um die 0.1 zeigen, dass die Unähnlichkeit der Ausgangsdaten der Unähnlichkeit im dimensionsreduzierten Raum stark ähnelt. Stresswerte über 0.4 weisen auf eine zufällige Verteilung der Daten hin. Um zu analysieren, wie gut die 2 Dimensionen die originale Distanz wiedergeben, wird ein Shepard-Diagram mithilfe des stressplot-Befehls erstellt, bei dem die Distanz im hochdimensionalen Raum gegen die Distanz im reduzierten Raum geplotted wird. Anhand eines Stressplots kann außerdem das Bestimmtheitsmaß der beiden Distanzen $R^2$ angegeben werden, die hier 1994 bei 0.989 und 1994 bei 0.988 liegt und dementsprechend sehr hoch ist.
+
+```{r}
+#| label: fig-stressplots94
+#| fig-cap: Stressplot der NMDS 1994 
+#| fig-width: 8
+#| out-width: 100%
+stressplot(nmds_vegetation_94)
+1-nmds_vegetation_94$stress^2
+```
+
+```{r}
+#| label: fig-stressplots95
+#| fig-cap: Stressplot der NMDS 1995 
+#| fig-width: 8
+#| out-width: 100%
+stressplot(nmds_vegetation_95)
+1-nmds_vegetation_95$stress^2
+```
+
+Um einzuordnen, wo sich die Sites auf den ersten beiden Dimensionen der NMDS befinden, wird im nächsten Schritt ein Biplot der 1. und 2. Dimension der NMDS mit den Namen der Orte erstellt.
+
+```{r}
+#| output: false
+plot_dataframe <- data.frame(nmds_vegetation_94$points, veg_fil_94, row.names = rownames(veg_fil_94))
+
+plot_dataframe2 <- data.frame(nmds_vegetation_95$points, veg_fil_95, row.names = rownames(veg_fil_95))
+
+```
+
+```{r}
+#| output: false
+#| code-fold: true
+#| code-summary: 'Code für das Plotten der Biplots für 1994 und 1995'
+xlim <- c(-2, 2)
+ylim <- c(-1.5, 1.5)
+
+plot5 <- ggplot(plot_dataframe, aes(x = MDS1, y = MDS2, label = rownames(plot_dataframe))) +
+  geom_point(shape = 16, color = "#08519c") +
+  ggtitle("Biplot der 1. und 2. Dimension 1994") +
+  geom_text(hjust = 0, vjust = 0.2, size = 4) +
+  xlim(xlim) +
+  ylim(ylim)
+
+
+plot6 <- ggplot(plot_dataframe2, aes(x = MDS1, y = MDS2, label = rownames(plot_dataframe2))) +
+  geom_point(shape = 16, color = "#08519c") +
+  ggtitle("Biplot der 1. und 2. Dimension 1995") +
+  geom_text(hjust = 0, vjust = 0.2, size = 4) +
+  xlim(xlim) +
+  ylim(ylim)
+```
+
+```{r}
+#| label: fig-dimensionplot1
+#| fig-cap: Biplots der NMDS 1994 und 1995 
+#| fig-width: 14
+#| out-width: 100%
+
+grid.arrange(plot5, plot6, ncol = 2)
+```
+
+Die Biplots in @fig-dimensionplot1 zeigen, dass vor allem die PP-Sites 1994 sehr stark geclustered sind und sich alle im negativen Bereich der 1. Dimension befinden. Ein weiteres kleines Cluster zeigen die FW-Werte 1994, die sich im negativen Bereich der 1. Dimension und im positiven Bereich der 2. Dimension befinden, zu denen FW37 bis FW41 zählen. Die übrigen FW-Sites sind nicht so stark geclustered, befinden sich jedoch alle im positiven Bereich der 1. Dimension. 1995 zeigt sich ein ähnliches Bild, der positive und negative Bereich der 1. Dimension sind jedoch vertauscht. Die FW-Gruppe (37-41), die zuvor im negativen Bereich lag, liegt nun im positiven Bereich der 1. Dimension . 1995 liegen auch fast alle FW-Sites im positiven Bereich der 2. Dimension. Die PP-Sites weisen auch nicht mehr eine so einheitliche Einteilung wie 1994 auf, da sich sites in beiden Bereichen der 1. Dimension befinden.
+
+### 4.2. NMDS und die Pflanzenarten
+
+Um zu überprüfen, wie sich einige der Pflanzenarten in die NMDS einordnen lassen, wurde die Deckung der drei häufigsten Arten auf die ersten beden Dimensionen geplotted, um möglichst viele Sites dabei mitberücksichtigen zu können.
+
+```{r}
+#| output: false
+#| code-fold: true
+#| code-summary: 'Funktion zum Plotten der Deckung der Pflanzen auf die ersten beiden Dimensionen'
+plot_funktion_ggplot <- function(x,plot_dataframe){ 
+  plot7 <- ggplot(plot_dataframe, aes(x=MDS1, y=MDS2, label=rownames(plot_dataframe), size=plot_dataframe[,x]))
+  plot7 <- plot7 + geom_point(shape=16, color="#08519c") + ggtitle(names(plot_dataframe)[x]) + labs(size ="Deckung") +  xlim(xlim) +  ylim(ylim)
+}
+
+which(colnames(plot_dataframe)=="Phalaris.arundinacea")
+which(colnames(plot_dataframe)=="Cirsium.arvense")
+which(colnames(plot_dataframe)=="Urtica.dioica")
+
+which(colnames(plot_dataframe2)=="Phalaris.arundinacea")
+which(colnames(plot_dataframe2)=="Urtica.dioica")
+which(colnames(plot_dataframe2)=="Cirsium.arvense")
+```
+
+Hohe Deckungsgrade von *Phalaris arundinacea* gab es 1994 vor allem bei Sites, die sich im negativen Bereich der ersten Dimension befinden. Die zweithäufigste Art *Cirsium arvense* war vor allem in hohen Deckungsgraden bei Sites aufzufinden, die sich im negativen Bereich der 2. Dimension befinden.*Urtica dioica* gab es vorwiegend bei Sites in den höchsten Deckungsgraden, die sich im negativen Bereich der 1. und 2. Dimension befinden.
+
+```{r}
+#| label: fig-plantcover_1994
+#| fig-cap: Deckung der drei häufigsten Pflanzen auf die ersten beiden Dimensionen 1994 
+#| fig-width: 8
+#| out-width: 100%
+
+grid.arrange(plot_funktion_ggplot(41,plot_dataframe),plot_funktion_ggplot(20,plot_dataframe),plot_funktion_ggplot(61,plot_dataframe), ncol = 2, nrow = 2)
+```
+
+Entsprechen der @fig-dimensionplot1 mit den Sites, gab es höhere Deckungsgrade von *Phalaris arundinacea* 1995 eher im positiven Bereich der 1. Dimension, es gibt jedoch auch einige Sites mit hohen Deckungen, die sich im negativen Bereich befinden. Bei *Urtica dioica* ist die Einteilung in der 1. Dimension auch nicht mehr so eindeutig, es befinden sich jedoch noch alle Sites mit hohen Deckungsgraden im negativen Bereich der 2. Dimension. Sites mit hohen Deckungsgraden von *Cirsium arvense* befinden sich hauptsächlich im negativen Bereich beider Dimensionen.
+
+```{r}
+#| label: fig-plantcover_1995
+#| fig-cap: Deckung der drei häufigsten Pflanzen auf die ersten beiden Dimensionen 1995 
+#| fig-width: 8
+#| out-width: 100%
+
+grid.arrange(plot_funktion_ggplot(40,plot_dataframe2),plot_funktion_ggplot(63,plot_dataframe2),plot_funktion_ggplot(20,plot_dataframe2), ncol = 2, nrow = 2)
+```
+
+Der 'Species score' einzelner Arten, der sich mithilfe von $wascores()$ bestimmen lässt, gibt an wo der Schwerpunkt einer Art entlang einer NMDS-Dimension liegt. Im folgenden wurden die Species scores auf den ersten beiden Dimensionen für jeweils 1994 und 1995 abgebildet. Die Abbildungen zeigen ebenfalls die Vorzeichenumkehr der 1. Dimension zwischen 1994 und 1995. Viele Arten, die ihren Schwerpunkt 1994 im negatien Bereich der 1. Dimension haben, liegen 1995 im positiven Bereich.
+
+```{r}
+#| output: false
+nmds_vegetation_94 <- metaMDS(veg_scale_94, distance = "bray",  k=2, try=20, trymax=2000, wascores = T, autotransform = F)
+
+nmds_vegetation_95 <- metaMDS(veg_scale_95, distance = "bray",  k=2, try=20, trymax=2000, wascores = T, autotransform = F)
+
+```
+
+```{r}
+#| label: fig-species_score_1994_1D
+#| fig-cap: Species Score der Pflanzen 1994 auf der 1. Dimension 
+#| fig-width: 12
+#| out-width: 100%
+
+par(mar=c(8,4,2,0))
+barplot(nmds_vegetation_94$species[order(nmds_vegetation_94$species[,1]),1],cex.names =0.8, main="NMDS1", ylab="Species Score", las=2, ylim = ylim)
+
+```
+
+```{r}
+#| label: fig-species_score_1994_2D
+#| fig-cap: Species Score der Pflanzen 1994 auf der 2. Dimension 
+#| fig-width: 12
+#| out-width: 100%
+
+par(mar=c(8,4,2,0))
+barplot(nmds_vegetation_94$species[order(nmds_vegetation_94$species[,2]),2],cex.names =0.8, main="NMDS2", ylab="Species Score", las=2, ylim = ylim)
+
+```
+
+```{r}
+#| label: fig-species_score_1995_1D
+#| fig-cap: Species Score der Pflanzen 1995 auf der 1. Dimension 
+#| fig-width: 12
+#| out-width: 100%
+
+par(mar=c(8,4,2,0))
+barplot(nmds_vegetation_95$species[order(nmds_vegetation_95$species[,1]),1],cex.names =0.8, main="NMDS1", ylab="Species Score", las=2, ylim = ylim)
+```
+
+```{r}
+#| label: fig-species_score_1995_2D
+#| fig-cap: Species Score der Pflanzen 1995 auf der 2. Dimension 
+#| fig-width: 12
+#| out-width: 100%
+
+
+par(mar=c(8,4,2,0))
+barplot(nmds_vegetation_95$species[order(nmds_vegetation_95$species[,2]),2],cex.names =0.8, main="NMDS2", ylab="Species Score", las=2, ylim = ylim)
+```
+
+### 4.3. NMDS und die Zeigerwerte
+
+Die [Zeigerwerten nach Ellenberg](https://statedv.boku.ac.at/zeigerwerte/) sind Kenngrößen für einzelne Pflanzenarten, die Auskünfte über die Standortansprüche einer Pflanzenart geben und aus ökologischen und botanischen Beobachtungen und Erfahrungen abgeleitetet wurden (7). Da es sich dabei um das reale Vorkommen der Arten handelt, muss beachtet werden, dass der Einfluss von Konkurrenz durch andere Arten auch eingegangen ist. Zeigerwerte sind kein Ersatz für Messungen von Umweltfaktoren, können jedoch eine erste Hilfe bei Standortansprachen sein. Da es sich bei den Zeigerwerten nicht um *kardinale* Zahlen handelt, ist das Berechnen von Mittelwerten bei Vegetationsaufnahmen eigentlich nicht zulässig.
+
+![](Grafik_Zeigerwerte.jpg){fig-align="center" width="4in"}
+
+In der Praxis wird dennoch häufig das arithmethische Mittel angewendet, da es sich bei den Zeigerwertklassen dennoch um quantitative Abstufungen handelt, wie in der Abbildung aus dem Buch von Ellenberg (1992, 7) hervorgeht. Daher können die Mittelwerte eine gewisse Orientierung geben Alternativen wären z.B. das Berechnen des Medianwertes oder die Darstellung und der Vergleich von Zeigerwertspektren. Im Folgenden werden die arithmethischen Mittel der Feuchte-, Licht- und Stickstoffzahl berechnet und mit der NMDS verglichen, um zu untersuchen, ob sich daraus Tendenzen für die einzelnen Standorte ableiten lassen:
+
+```{r}
+#| output: false
+#| code-fold: true
+#| code-summary: 'Mittelwerte der Zeigerwerte bilden 1994'
+
+zeiger <- read.csv2("Zeigerwerte.csv", row.names = 1)
+t_veg_fil_94 <- t(veg_fil_94)
+
+# Zeigerwerte und Vegetationsdaten in eine Tabelle bringen:
+common_row_names <- intersect(row.names(t_veg_fil_94), row.names(zeiger))
+veg_fil_94_filtered <- t_veg_fil_94[common_row_names, ]
+zeiger_subset_filtered <- zeiger[common_row_names, ]
+veg_94_binary <- as.data.frame(veg_fil_94_filtered != 0)
+
+merged_table <- cbind(veg_94_binary, zeiger_subset_filtered)
+
+sites <- colnames(veg_94_binary)
+for (sitenr in sites) {
+  new_col_N <- paste0(sitenr, "_N_Zahl")
+  new_col_F <- paste0(sitenr, "_F_Zahl")
+  new_col_L <- paste0(sitenr, "_L_Zahl")
+  merged_table[[new_col_N]] <- ifelse(merged_table[[sitenr]] == 1, merged_table$N_ZAHL, NA)
+  merged_table[[new_col_F]] <- ifelse(merged_table[[sitenr]] == 1, merged_table$F_ZAHL, NA)
+  merged_table[[new_col_L]] <- ifelse(merged_table[[sitenr]] == 1, merged_table$L_ZAHL, NA)
+}
+
+# Extrahieren der Spalten mit den Mittelwerten
+new_table <- merged_table[, 39:143]
+means <- colMeans(new_table, na.rm = TRUE)
+
+mean_zeiger <- data.frame(
+  N_Zahl = means[grep("_N_Zahl", names(means))],
+  F_Zahl = means[grep("_F_Zahl", names(means))],
+  L_Zahl = means[grep("_L_Zahl", names(means))]
+)
+rownames(mean_zeiger) <- sites
+
+Fzahl_data <- data.frame(
+  sites = rownames(mean_zeiger),
+  zahlen = mean_zeiger$F_Zahl
+)
+
+
+Fzahl_data$sites <- factor(Fzahl_data$sites, levels = rownames(mean_zeiger))
+
+```
+
+```{r}
+#| output: false
+#| code-fold: true
+#| code-summary: 'Mittelwerte der Zeigerwerte bilden 1995'
+
+t_veg_fil_95 <- t(veg_fil_95)
+
+# Zeigerwerte und Vegetationsdaten in eine Tabelle bringen:
+common_row_names2 <- intersect(row.names(t_veg_fil_95), row.names(zeiger))
+veg_fil_95_filtered <- t_veg_fil_95[common_row_names2, ]
+zeiger_subset_filtered2 <- zeiger[common_row_names2, ]
+veg_95_binary <- as.data.frame(veg_fil_95_filtered != 0)
+
+merged_table2 <- cbind(veg_95_binary, zeiger_subset_filtered2)
+
+sites2 <- colnames(veg_95_binary)
+for (sitenr in sites2) {
+  new_col_N <- paste0(sitenr, "_N_Zahl")
+  new_col_F <- paste0(sitenr, "_F_Zahl")
+  new_col_L <- paste0(sitenr, "_L_Zahl")
+  merged_table2[[new_col_N]] <- ifelse(merged_table2[[sitenr]] == 1, merged_table2$N_ZAHL, NA)
+  merged_table2[[new_col_F]] <- ifelse(merged_table2[[sitenr]] == 1, merged_table2$F_ZAHL, NA)
+  merged_table2[[new_col_L]] <- ifelse(merged_table2[[sitenr]] == 1, merged_table2$L_ZAHL, NA)
+}
+
+
+new_table2 <- merged_table2[, 39:143]
+means2 <- colMeans(new_table2, na.rm = TRUE)
+
+mean_zeiger2 <- data.frame(
+  N_Zahl = means2[grep("_N_Zahl", names(means2))],
+  F_Zahl = means2[grep("_F_Zahl", names(means2))],
+  L_Zahl = means2[grep("_L_Zahl", names(means2))]
+)
+rownames(mean_zeiger2) <- sites2
+
+Fzahl_data2 <- data.frame(
+  sites = rownames(mean_zeiger2),
+  zahlen = mean_zeiger2$F_Zahl
+)
+
+Fzahl_data2$sites <- factor(Fzahl_data2$sites, levels = rownames(mean_zeiger2))
+```
+
+Da es bei der Untersuchung der Fläche um einen Renaturierungsversuch von Niedermooren handelt, sind besonders die Feuchtezahlen von Interesse. Um einen ersten Überblick über die Feuchtezahlen der einzelnen Jahre zu bekommen, zeigt @fig-F_Zahl_94_95 die mittlere Feuchtezahl der einzelnen Sites in 1994 und 1995. 1994 zeigen vor allem die FW-Sites 37 bis 41 hohe Feuchtezahlen. 1995 sind die mittleren Feuchtezahlen dieser Gruppe noch höher. Während 1994 die restlichen Sites fast alle mittlere Feuchtezahlen unter 7 aufweisen, gibt es 1995 vor allem PP-Sites, deren Feuchtezahl deutlich gestiegen ist und die bei über 7 bzw. rund um die 8 liegt.
+
+```{r}
+#| label: fig-F_Zahl_94_95
+#| fig-cap: Mittlere Feuchtezahl der Sites 1994 (links) und 1995 (rechts) 
+#| fig-width: 14
+#| out-width: 100%
+
+Fzahl_bar_94 <- ggplot(Fzahl_data, aes(x = sites, y = zahlen)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  theme_minimal() + 
+  labs(x = "Sites", y = "mittlere F-Zahl", title = "1994") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  coord_cartesian(ylim = c(0, 8.5)) 
+
+Fzahl_bar_95 <- ggplot(Fzahl_data2, aes(x = sites, y = zahlen)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  theme_minimal() +  
+  labs(x = "Sites", y = "mittlere F-Zahl", title = "1995") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  coord_cartesian(ylim = c(0, 8.5)) 
+
+grid.arrange(Fzahl_bar_94, Fzahl_bar_95, ncol = 2, nrow = 1)
+```
+
+Da es sich bei den Gruppen um ähnliche Zusammenhänge wie bei der NMDS zu handeln scheint, wurde im nächsten Schritt die mittlere Feuchtezahl der einzelnen Sites auf die NMDS abgebildet.
+
+```{r}
+#| output: false
+
+plot_dataframe_env <- cbind(nmds_vegetation_94$points, mean_zeiger) 
+plot_dataframe_env <- data.frame(plot_dataframe_env)
+
+plot_dataframe_env2 <- cbind(nmds_vegetation_95$points, mean_zeiger2)
+plot_dataframe_env2 <- data.frame(plot_dataframe_env2)
+
+plot_env_ggplot <- function(plot_dataframe_env, x, limits){ 
+  env_plot1 <- ggplot(plot_dataframe_env, aes(x = MDS1, y = MDS2, label = rownames(plot_dataframe_env), color = plot_dataframe_env[,x])) +
+    geom_point(shape = 16, size = 4) +
+    ggtitle(names(plot_dataframe_env)[x]) +
+    labs(color = names(plot_dataframe_env)[x]) +
+    scale_colour_distiller(palette = "RdBu", limits = limits, direction = 1) +
+    geom_text(hjust = 0, vjust = 0.2, size = 3, color = "black")
+  
+  return(env_plot1)
+}
+```
+
+Die Sites mit den höheren F-Zahlen (\>7) liegen 1994 ausschließlich im negativen Bereich der 1. Dimension und im positiven Bereich der 2. Dimension. Es ist also möglich, dass die Feuchte einen Einfluss auf die Ausprägung beider Dimensionen hat. 1995 sind es generell mehr Sites mit hohen Feuchtezahlen und allgemein noch höhere Feuchtezahlen als 1994. Die entsprechenden sites befinden sich alle im positiven Bereich der 1. Dimension und vorwiegend im positiven Bereich der 2. Dimension.
+
+```{r}
+#| label: fig-F_Zahl_env_plot
+#| fig-cap: Die mittlere Feuchtezahl der Sites in der NMDS 1994 (links) und 1995 (rechts) 
+#| fig-width: 14
+#| out-width: 100%
+
+grid.arrange(plot_env_ggplot(plot_dataframe_env, 4, c(5, 9)),plot_env_ggplot(plot_dataframe_env2, 4, c(5, 9)), ncol = 2)
+```
+
+Um den Einfluss der anderen Umweltvariable zu untersuchen, wurde im folgenden die Stickstoffzahl auf die NMDS geplotted (@fig-N_Zahl_env_plot). Die Skala wurde entsprechend der geringeren Unterschiede zwischen den SItes angepasst. Auch hier befinden sich 1994 die Sites mit einer hohen Stickstoffzahl im negativen Bereich der 1. Dimension, jedoch vorwiegend im negativen Bereich der 2. Dimension. 1995 gibt es nicht mehr so eindeutige Unterschiede, die meisten Sites mit einer hohen Stickstoffzahl befinden sich jedoch im negativen Bereich der 2. Dimension.
+
+```{r}
+#| label: fig-N_Zahl_env_plot
+#| fig-cap: Die mittlere Stickstoffzahl der Sites in der NMDS 1994 (links) und 1995 (rechts) 
+#| fig-width: 14
+#| out-width: 100%
+
+grid.arrange(plot_env_ggplot(plot_dataframe_env, 3, c(5,8)),plot_env_ggplot(plot_dataframe_env2, 3, c(5,8)), ncol = 2)
+```
+
+Bei dem Abbilden der Lichtzahl auf die NMDS wurde die Skala ebenfalls angepasst, da die Unterschiede zwischen den Sites geringer waren (@fig-L_Zahl_env_plot). Die Sites mit den höchsten Lichtzahlen befinden sich 1994 im negativen Bereich der 1. Dimension und im psitiven Bereich der 2. Dimension. 1995 befinden sich diese sites im positiven Bereich beider Diimensionen. Obwohl die Zuteilung der Sites relativ eindeutog ist, ist der Einfluss der Lichtzahl auf die Dimensionen vermutlich wegen der geringeren Unterschiede zwischen den Sites relativ gering.
+
+```{r}
+#| label: fig-L_Zahl_env_plot
+#| fig-cap: Die mittlere Lichtzahl der Sites in der NMDS 1994 (links) und 1995 (rechts)
+#| fig-width: 14
+#| out-width: 100%
+
+grid.arrange(plot_env_ggplot(plot_dataframe_env, 5, c(6.5,8)),plot_env_ggplot(plot_dataframe_env2, 5, c(6.5,8)), ncol = 2)
+```
+
+Um die Vermutungen aus den NMDS-Abbildungen zu überprüfen, werden mithilfe der Funktion $envfit()$ Vektoren, die maximal mit einem der Zeigerwerte korreliert sind, an die Ordination gefitted. Die Richtung des Vektors wird dabei durch die stärkste Veränderung bestimmt und die Länge an die Stärke der Korrelation angepasst. Starke Korrelationen werden folglich durch lange Vektoren dargestellt.
+
+```{r}
+#| output: false
+env_vectors <-envfit(nmds_vegetation_94, mean_zeiger)
+env_vectors2 <-envfit(nmds_vegetation_94, mean_zeiger2)
+```
+
+1994 scheint vor allem die Stickstoffzahl eine große Korrelation mit der Verteilung in der NMDS aufzuweisen (p-Wert\>0.001, @fig-env_vectors_nmds). Auch die Feuchtezahl weist noch einen signifikanten Zusammenhang auf, der jedoch in eine etwas andere Richtung wirkt als die Stickstoffzahl. 1995 ist es dann nur noch die Feuchtezahl, die signifikant mit der Verteilung der Datenpunkte auf der NMDS korreliert ist.
+
+```{r}
+#| label: fig-env_vectors_nmds
+#| fig-cap: Vektoren der Korrelation mit den Zeigerwerten 
+#| fig-width: 8
+#| out-width: 100%
+plot(x=nmds_vegetation_94$points[,"MDS1"], y=nmds_vegetation_94$points[,"MDS2"], xlab="Dimension1", ylab="Dimension2", pch=16)
+plot(env_vectors)
+
+plot(x=nmds_vegetation_95$points[,"MDS1"], y=nmds_vegetation_95$points[,"MDS2"], xlab="Dimension1", ylab="Dimension2", pch=16)
+plot(env_vectors2)
+```
+
+## 5. Clusteranalyse
+
+### 5.1. K-Means
+
+Das nicht hierarchische Clusterverfahren der K-Means Partitionierung basiert auf der schrittweisen Oprtimierung von möglichst kleinen Distanzen von Objekten in einem Cluster. Da die K-Means Clustermethode nur mit euklidischen Distanzen funktioniert, müssen die Biodiversitätsdaten zunächst mithilfe der Hellinger transformation transformiert werden. K-Means eignet sich oft besser, homogene Cluster zu finden als hierarchische Clusterverfahren. Bei den Clustern ist es wichtig, dass sie nach innen möglichst homogen und nach außen Unterschiede zu anderen Clustern aufweisen.
+
+```{r}
+#| output: false
+veg_stand_94 <- decostand(veg_scale_94, "hellinger")
+veg_stand_95 <- decostand(veg_scale_95, "hellinger")
+```
+
+Die Anzahl der Cluster ist zuvor unbekannt, es kann jedoch anhand verschiedener Tests analysiert werden, welche Anzahl am sinnvollsten ist. Dabei eignet sich am besten die Silhouettenweite, da Kriterien wie das Calinski-Harabasz criterion nur bei ungefähr gleich großer Clustergröße funktioniert. Die Silhouettenweite wird für jedes Objekt einzeln berechnet und danach Mittelwerte für die einzelnen Cluster berechnet. Dabei sind größere Silhouettenweiten die nah bei der 1 liegen besonders wünschenswert. Eine kleine SIlhouettenweite eines Objektes bedeutet, dass dieses zwischen zwei Clustern liegt. Ist die Silhouettenweite negativ, wurde das Objekt dem falschen Cluster zugeordnet.
+
+```{r}
+#| output: false
+silhouette_results_kmeans_94 <- data.frame("Clusteranzahl"=2:30, "silhouette"=NA)
+
+for(i in 2:30){
+  clust <- kmeans(veg_stand_94, centers = i, nstart = 200)
+  clust <- clust$cluster
+  sil <- silhouette(clust, veg_dist_94)
+  silhouette_results_kmeans_94[i-1,2] <- round(mean(sil[,3]),2)
+}
+```
+
+```{r}
+#| label: fig-silhouette_kmeans_94
+#| fig-cap: Silhouettenweiter der K-Means Clusteranzahlen 1994 
+#| fig-width: 7
+#| out-width: 100%
+plot(x=2:11, y=silhouette_results_kmeans_94[1:10,2], type = "S", xlab = "Clusteranzahl", ylab = "Silhouettenweite")
+```
+
+@fig-silhouette_kmeans_94 zeigt, dass 3 oder 6 Cluster am besten wären, da sie die größte Silhouettenweite von je 0.31 und 0.33 aufweisen. Da der Unterschied nur bei 0.2 liegt und es bei der Clusteranalyse auch darum geht, eine überschaubare Zahl von interpretierbaren Clustern zu erzeugen, wird mit 3 Clustern weitergerechnet.
+
+```{r}
+#| output: false
+silhouette_results_kmeans_95 <- data.frame("Clusteranzahl"=2:30, "silhouette"=NA)
+
+for(i in 2:30){
+  clust <- kmeans(veg_stand_95, centers = i, nstart = 200)
+  clust <- clust$cluster
+  sil <- silhouette(clust, veg_dist_95)
+  silhouette_results_kmeans_95[i-1,2] <- round(mean(sil[,3]),2)
+}
+```
+
+```{r}
+#| label: fig-silhouette_kmeans_95
+#| fig-cap: Silhouettenweiter der K-Means Clusteranzahlen 1995 
+#| fig-width: 7
+#| out-width: 100%
+plot(x=2:11, y=silhouette_results_kmeans_95[1:10,2], type = "S", xlab = "Clusteranzahl", ylab = "Silhouettenweite")
+```
+
+@fig-silhouette_kmeans_95 zeigt, dass 5 Cluster am besten wären, da sie die größte Silhouettenweite von 0.42 aufweisen. Um jedoch auch den Vergleich mit 1994 schaffen zu können, wird die Clusteranalyse auch mit 3 Clustern durchgeführt, die eine Silhouettenweite von 0.36 aufweisen, die noch immer größer ist, als die Silhouettenweite der Daten von 1994.
+
+```{r}
+#| output: false
+kmeans3_94 <- kmeans(veg_stand_94, centers = 3, nstart = 200)
+sil_kmeans_94 <- silhouette(kmeans3_94$cluster,veg_dist_94)
+color_plot3 <- brewer.pal(name="Set2", n=3)
+```
+
+```{r}
+#| label: fig-kmeans3_94
+#| fig-cap: Silhouettenweite der K-Means Clusteranalyse mit 3 Clustern 1994
+#| fig-width: 7
+#| out-width: 100%
+plot(sil_kmeans_94, main="kmeans 3", col = color_plot3)
+```
+
+@fig-kmeans3_94 zeigt, dass das dritte Cluster vorwiegend die Sites des Potsdamer Platzes repräsentiert (Index 1 bis 20). In Cluster 1 beinden sich die Flächen von FW37 bis FW41. Der Rest von FW32 bis FW46 befindet sich im zweiten Cluster.
+
+```{r}
+#| output: false
+kmeans3_95 <- kmeans(veg_stand_95, centers = 3, nstart = 200)
+sil_kmeans_3_95 <- silhouette(kmeans3_95$cluster,veg_dist_95)
+```
+
+```{r}
+#| label: fig-kmeans3_95
+#| fig-cap: Silhouettenweite der K-Means Clusteranalyse mit 3 Clustern 1995
+#| fig-width: 7
+#| out-width: 100%
+plot(sil_kmeans_3_95, main="kmeans 3", col = color_plot3)
+```
+
+```{r}
+#| output: false
+kmeans5_95 <- kmeans(veg_stand_95, centers = 5, nstart = 200)
+sil_kmeans_95 <- silhouette(kmeans5_95$cluster,veg_dist_95)
+color_plot5 <- brewer.pal(name="Set2", n=5)
+```
+
+```{r}
+#| label: fig-kmeans5_95
+#| fig-cap: Silhouettenweite der K-Means Clusteranalyse mit 5 Clustern 1995 
+#| fig-width: 7
+#| out-width: 100%
+plot(sil_kmeans_95, main="kmeans 5", col = color_plot5)
+```
+
+@fig-kmeans5_95 zeigt, dass sich weiterhin die PP-Sites und die FW-Sites nicht in gemeinsamen Clustern befinden. Die Sites-Gruppen sind jedoch weiter unterteilt.
+
+#### 5.1.1. K-Means und NMDS
+
+```{r}
+#| label: fig-kmeans3_94_nmds
+#| fig-cap: Die drei Cluster aus der K-Means-Analyse geplotted auf die NMDS (1994) 
+#| fig-width: 7
+#| out-width: 100%
+plot(x=nmds_vegetation_94$points[,"MDS1"], y=nmds_vegetation_94$points[,"MDS2"], xlab="Dimension1", ylab="Dimension2", col=color_plot3[kmeans3_94$cluster], pch=16)
+```
+
+```{r}
+#| label: fig-kmeans5_95_nmds
+#| fig-cap: Die fünf Cluster aus der K-Means-Analyse geplotted auf die NMDS (1995) 
+#| fig-width: 7
+#| out-width: 100%
+plot(x=nmds_vegetation_95$points[,"MDS1"], y=nmds_vegetation_95$points[,"MDS2"], xlab="Dimension1", ylab="Dimension2", col=color_plot5[kmeans5_95$cluster], pch=16)
+```
+
+#### 5.1.2. K-Means und die Zeigerwerte
+
+Mithilfe von Umweltvariablen können die Cluster interpretiert werden und eine überschaubare und sinnvolle Anzahl an Clustern gewählt werden. Dazu wurden die Cluster aus der K-Means-Analyse in einen Boxplot der Feuchtezahlen abgebildet.
+
+```{r}
+#| output: false
+cut_3_kmean94 <- kmeans3_94$cluster
+cut_3_kmean94 <- as.data.frame(cut_3_kmean94)
+
+zeiger_und_kmean_94 <- merge(mean_zeiger, cut_3_kmean94, by.x ="row.names", by.y="row.names")
+
+names(zeiger_und_kmean_94)[5] <- "Cluster"
+row.names(zeiger_und_kmean_94) <- zeiger_und_kmean_94$Row.names
+
+zeiger_und_kmean_94 <- zeiger_und_kmean_94[,c(2:5)]
+```
+
+```{r}
+#| label: fig-kmeans3_94_zeiger
+#| fig-cap: Boxplot der Feuchtezahlen der Cluster aus der K-Means-Analyse (1994) 
+#| fig-width: 7
+#| out-width: 100%
+par(bg="white")
+boxplot(F_Zahl~Cluster, data=zeiger_und_kmean_94, col=color_plot3, ylab="F-Zahl", xlab="Cluster", main="Kmeans")
+```
+
+```{r}
+#| output: false
+cut_5_kmean95 <- kmeans5_95$cluster
+cut_5_kmean95 <- as.data.frame(cut_5_kmean95)
+
+zeiger_und_kmean_95 <- merge(mean_zeiger2, cut_5_kmean95, by.x ="row.names", by.y="row.names")
+
+names(zeiger_und_kmean_95)[5] <- "Cluster"
+row.names(zeiger_und_kmean_95) <- zeiger_und_kmean_95$Row.names
+
+zeiger_und_kmean_95 <- zeiger_und_kmean_95[,c(2:5)]
+```
+
+```{r}
+#| label: fig-kmeans5_95_zeiger
+#| fig-cap: Boxplot der Feuchtezahlen der Cluster aus der K-Means-Analyse (1995) 
+#| fig-width: 7
+#| out-width: 100%
+par(bg="white")
+boxplot(F_Zahl~Cluster, data=zeiger_und_kmean_95, col=color_plot5, ylab="F-Zahl", xlab="Cluster", main="Kmeans")
+```
+
+### 5.2. K-Medoids
+
+Eine Alternative der K-Means-Methode sind die [K-Medoids](https://link.springer.com/referenceworkentry/10.1007/978-0-387-30164-8_426) (8). Bei der K-Medoids-Methode werden die Clusterzentren durch Punkte des Datensatzes (*exemplars*) gebildet. Außerdem wird nicht die euklidische Distanz sondern beliebige Unähnlichkeitsmaße genutzt, was besonder für quantitative Artdaten relevant ist. Vorraussetzung des Datenpunktes, der den Medoid bildet, ist, dass doe Unähnlichkeit zu allen anderen Datenpunkten im entsprechenden Cluster minimal ist. Dafür wird häufig die *Partitioning around medoids*-Methode (PAM) verwendet. Der Ablauf der Methode ist ähnlich zu der K-Means Partitionierung. Es werden zunächst eine bestimmte Anzahl Objekte bzw. Exemplars zufällig gewählt und der Abstand aller anderen Datenpunkten zu dem Exemplars bestimmt. Die Anzahl der Exemplars kann frei gewählt werden und sollte von Gütemaßen wie der Silhouettenweite abhängig gemacht werden. Die anderen Datenpunkte werden dem Exemplar zugeordnet, zu dem die geringste Distanz besteht. Dieser Ablauf wird mit weiteren Datenpunkten des Clusters als Exemplar wiederholt und sofern die Summe der Distanzen zu allen anderen Datenpunkten geringer ist, wird diese Zuordnung beibehalten bis sich bei einer andern Exemplarkombination einer bessere Kombination ergibt. Dieser Ablauf wird so lange wiederholt, bis das Ergebnis der Summe stabil bleibt. Um zu Überprüfen, welche Clusteranzahl am sinnvollsten ist, wird die Silhouettenweite der Clusteranzahlen berechnet:
+
+```{r}
+#| output: false
+pam_sil_94 <- data.frame("n_medioids"=2:10, "sil"=NA) 
+
+for(i in 2:10){
+  pam_res <- pam(veg_dist_94, k=i, diss = T)
+  pam_sil_94[i-1,2] <- pam_res$silinfo$avg.width
+}
+```
+
+```{r}
+#| label: fig-kmedeo_sil_94
+#| fig-cap: Silhouettenweite der verschiedenen Clusteranzahlen mit der K-Medoids-Methode 1994
+#| fig-width: 7
+#| out-width: 100%
+plot(y=pam_sil_94[,2], x=2:10, type = "S")
+```
+
+@fig-kmedeo_sil_94 zeigt, dass für die Daten von 1994 6 Cluster am besten wären mit einer Silhouettenweite von etwa 0.33. Die nächstgrößere Silhouettenweise liegt bei 2 Clustern bei etwa 0.31. Da 6 Cluster vergleichsweise viele Cluster sind, wird die K-Medoids-Analyse mit beiden durchgeführt.
+
+```{r}
+#| output: false
+pam_sil_95 <- data.frame("n_medioids"=2:10, "sil"=NA) 
+
+for(i in 2:10){
+  pam_res <- pam(veg_dist_95, k=i, diss = T)
+  pam_sil_95[i-1,2] <- pam_res$silinfo$avg.width
+}
+```
+
+```{r}
+#| label: fig-kmedeo_sil_95
+#| fig-cap: Silhouettenweite der verschiedenen Clusteranzahlen mit der K-Medoids-Methode 1995 
+#| fig-width: 7
+#| out-width: 100%
+plot(y=pam_sil_95[,2], x=2:10, type = "S")
+```
+
+@fig-kmedeo_sil_95 zeigt, dass für die Daten von 1995 5 Cluster die größte Silhouettenweite von etwa 0.40 aufweisen. Die nächstgrößere Silhouettenweise liegt bei 7 Clustern und bei 6 Clustern bei etwa 0.39. Bei 4 Clustern ist die Silhouettenweite mit etwa 0.37 noch relativ nah an den größeren Anzahlen der Cluster und bietet noch eine relativ überschaubare Anzahl an Clustern. Es wird dir K-Medoids-Analyse daher mit 4 und 5 Clustern für 1995 durchgeführt.
+
+```{r}
+#| output: false
+colors2 <- brewer.pal(name="Set2", n=2)[1:2]
+pam2_94 <- pam(veg_dist_94, k=2, diss = T)
+sil_pam2_94 <- silhouette(pam2_94$clustering,veg_dist_94)
+
+colors6 <- brewer.pal(name="Set2", n=6)[1:6]
+pam6_94 <- pam(veg_dist_94, k=6, diss = T)
+sil_pam6_94 <- silhouette(pam6_94$clustering,veg_dist_94)
+```
+
+```{r}
+#| label: fig-kmedeo_94
+#| fig-cap: Cluster und Silhouettenweite nach der PAM-Methode 1994 
+#| fig-width: 7
+#| out-width: 100%
+plot(sil_pam2_94, main="PAM 2", col=colors2)
+plot(sil_pam6_94, main="PAM 6", col=colors6)
+
+```
+
+```{r}
+#| output: false
+colors4 <- brewer.pal(name="Set2", n=4)[1:4]
+pam4_95 <- pam(veg_dist_95, k=4, diss = T)
+sil_pam4_95 <- silhouette(pam4_95$clustering,veg_dist_95)
+
+colors5 <- brewer.pal(name="Set2", n=5)[1:5]
+pam5_95 <- pam(veg_dist_95, k=5, diss = T)
+sil_pam5_95 <- silhouette(pam5_95$clustering,veg_dist_95)
+```
+
+```{r}
+#| label: fig-kmedeo_95
+#| fig-cap: Cluster und Silhouettenweite nach der PAM-Methode 1995 
+#| fig-width: 7
+#| out-width: 100%
+plot(sil_pam4_95, main="PAM 2", col=colors4)
+plot(sil_pam5_95, main="PAM 3", col=colors5)
+
+```
+
+#### 5.2.1. K-Medoids und NMDS
+
+Um einen Vergleich der Cluster aus der K-Medoids Methode und der NMDS herzustellen, wurden die Punkte in der NMDS den Clustern farblich zugeordnet. Zusätzlich wurden die Exmplars der Cluster eingetragen.
+
+```{r}
+#| label: fig-kmedeo_nmds_94
+#| fig-cap: Cluster und Exemplars aus der K-Medoids Analyse in die NMDS abgebildet (1994) 
+#| fig-width: 8
+#| out-width: 100%
+plot(x=nmds_vegetation_94$points[,"MDS1"], y=nmds_vegetation_94$points[,"MDS2"], xlab="Dimension1", ylab="Dimension2", col=colors2[pam2_94$clustering], pch=16)
+
+# Eintragen der Exemplars
+points(x=nmds_vegetation_94$points[pam2_94$id.med[1],"MDS1"], y=nmds_vegetation_94$points[pam2_94$id.med[1],"MDS2"], bg=colors2[1], pch=22,cex=2)
+text(x=nmds_vegetation_94$points[pam2_94$id.med[1],"MDS1"], y=nmds_vegetation_94$points[pam2_94$id.med[1],"MDS2"], labels = pam2_94$medoids[1], pos = 4)
+
+points(x=nmds_vegetation_94$points[pam2_94$id.med[2],"MDS1"], y=nmds_vegetation_94$points[pam2_94$id.med[2],"MDS2"], bg=colors2[2], pch=22,cex=2)
+text(x=nmds_vegetation_94$points[pam2_94$id.med[2],"MDS1"], y=nmds_vegetation_94$points[pam2_94$id.med[2],"MDS2"], labels = pam2_94$medoids[2], pos = 4)
+```
+
+Das gleiche wurde für die 4 K-Medoids Cluster der Daten von 1995 gemacht (@fig-kmedeo_nmds_95).
+
+```{r}
+#| label: fig-kmedeo_nmds_95
+#| fig-cap: Cluster und Exemplars aus der K-Medoids Analyse in die NMDS abgebildet (1994) 
+#| fig-width: 8
+#| out-width: 100%
+plot(x=nmds_vegetation_95$points[,"MDS1"], y=nmds_vegetation_95$points[,"MDS2"], xlab="Dimension1", ylab="Dimension2", col=colors4[pam4_95$clustering], pch=16)
+
+# Eintragen der Exemplars
+points(x=nmds_vegetation_95$points[pam4_95$id.med[1],"MDS1"], y=nmds_vegetation_95$points[pam4_95$id.med[1],"MDS2"], bg=colors4[1], pch=22,cex=2)
+text(x=nmds_vegetation_95$points[pam4_95$id.med[1],"MDS1"], y=nmds_vegetation_95$points[pam4_95$id.med[1],"MDS2"], labels = pam4_95$medoids[1], pos = 4)
+
+points(x=nmds_vegetation_95$points[pam4_95$id.med[2],"MDS1"], y=nmds_vegetation_95$points[pam4_95$id.med[2],"MDS2"], bg=colors4[2], pch=22,cex=2)
+text(x=nmds_vegetation_95$points[pam4_95$id.med[2],"MDS1"], y=nmds_vegetation_95$points[pam4_95$id.med[2],"MDS2"], labels = pam4_95$medoids[2], pos = 4)
+
+points(x=nmds_vegetation_95$points[pam4_95$id.med[3],"MDS1"], y=nmds_vegetation_95$points[pam4_95$id.med[3],"MDS2"], bg=colors4[3], pch=22,cex=2)
+text(x=nmds_vegetation_95$points[pam4_95$id.med[3],"MDS1"], y=nmds_vegetation_95$points[pam4_95$id.med[3],"MDS2"], labels = pam4_95$medoids[3], pos = 4)
+
+points(x=nmds_vegetation_95$points[pam4_95$id.med[4],"MDS1"], y=nmds_vegetation_95$points[pam4_95$id.med[4],"MDS2"], bg=colors4[4], pch=22,cex=2)
+text(x=nmds_vegetation_95$points[pam4_95$id.med[4],"MDS1"], y=nmds_vegetation_95$points[pam4_95$id.med[4],"MDS2"], labels = pam4_95$medoids[4], pos = 4)
+```
+
+#### 5.2.2. K-Medoids und Zeigerwerte
+
+```{r}
+#| output: false
+zeiger_und_pam_94_2 <- merge(mean_zeiger, pam2_94$clustering, by.x ="row.names", by.y="row.names")
+
+names(zeiger_und_pam_94_2)[5] <- "Cluster"
+row.names(zeiger_und_pam_94_2) <- zeiger_und_pam_94_2$Row.names
+
+zeiger_und_pam_94_2 <- zeiger_und_pam_94_2[,c(2:5)]
+
+zeiger_und_pam_94_6 <- merge(mean_zeiger, pam6_94$clustering, by.x ="row.names", by.y="row.names")
+
+names(zeiger_und_pam_94_6)[5] <- "Cluster"
+row.names(zeiger_und_pam_94_6) <- zeiger_und_pam_94_6$Row.names
+
+zeiger_und_pam_94_6 <- zeiger_und_pam_94_6[,c(2:5)]
+```
+
+```{r}
+#| label: fig-zeiger_pam_94
+#| fig-cap: Boxplot der Feuchtezahl der einzelnen Cluster für 2 und 6 Cluster
+#| fig-width: 8
+#| out-width: 100%
+par(bg="white")
+boxplot(F_Zahl~Cluster, data=zeiger_und_pam_94_2, col=colors2, ylab="FZahl", xlab="Cluster", main="PAM")
+
+par(bg="white")
+boxplot(F_Zahl~Cluster, data=zeiger_und_pam_94_6, col=colors6, ylab="FZahl", xlab="Cluster", main="PAM")
+```
+
+```{r}
+#| output: false
+zeiger_und_pam_95_4 <- merge(mean_zeiger2, pam4_95$clustering, by.x ="row.names", by.y="row.names")
+
+names(zeiger_und_pam_95_4)[5] <- "Cluster"
+row.names(zeiger_und_pam_95_4) <- zeiger_und_pam_95_4$Row.names
+
+zeiger_und_pam_95_4 <- zeiger_und_pam_95_4[,c(2:5)]
+
+zeiger_und_pam_95_5 <- merge(mean_zeiger2, pam5_95$clustering, by.x ="row.names", by.y="row.names")
+
+names(zeiger_und_pam_95_5)[5] <- "Cluster"
+row.names(zeiger_und_pam_95_5) <- zeiger_und_pam_95_5$Row.names
+
+zeiger_und_pam_95_5 <- zeiger_und_pam_95_5[,c(2:5)]
+```
+
+```{r}
+#| label: fig-zeiger_pam_95
+#| fig-cap: Boxplot der Feuchtezahl der einzelnen Cluster für 4 und 5 Cluster 1995
+#| fig-width: 8
+#| out-width: 100%
+par(bg="white")
+boxplot(F_Zahl~Cluster, data=zeiger_und_pam_95_4, col=colors4, ylab="FZahl", xlab="Cluster", main="PAM")
+
+par(bg="white")
+boxplot(F_Zahl~Cluster, data=zeiger_und_pam_95_5, col=colors5, ylab="FZahl", xlab="Cluster", main="PAM")
+```
+
+#### 5.2.3. K-Medoids und Indikatorarten
+
+Mitilfe der Bestimmung von Indikatorarten kann untersucht werden, welche Arten sind typisch für die einzelnen Cluster sind. Indikatorarten sollten möglichst spezifisch sein und häufig innerhalb einer Gruppe bzw. eines Clusters vorkommen, jedoch nicht außerhalb dieser. Indikatorarten sollten jedoch auch treu sein, was bedeutet, dass sie in fast allen Flächen einer Gruppe oder eines Clusters vorkommen.
+
+```{r}
+#| output: false
+indi_sepc_94<- multipatt(veg_fil_94, cluster=pam2_94$clustering, control = how(nperm=999))
+summary(indi_sepc_94)
+```
+
+Für Gruppe 1 ist die Indikatorart mit der höchsten Signifikanz *Phalaris arundinacea*. Währen die Art ein Feuchtezeiger ist, handelt es sich bei den Indikatorarten von Gruppe 2 wie *Rumex acetosa* und *Holcus lanatus* eher um Pflnazen, die ein indifferentes Verhalten gegenüber der Feuchtigkeit aufzeigen (9) oder lediglich Frische- bis Feuchtezeiger (10) sind. Bei *Rumex acetosa* handelt es sich jedoch um eine Lichtpflanze (9).
+
+```{r}
+#| output: false
+indi_sepc_95<- multipatt(veg_fil_95, cluster=pam4_95$clustering, control = how(nperm=999))
+summary(indi_sepc_95)
+```
+
+1995 sind es 5 Cluster. Die Indikatorart der Gruppe 1 ist *Urtica dioica*. *Carex hirta* ist die Indikatorart der Gruppe 2, *Rumex acetosa* und *Vicia cracca* u.a. Indikatorarten der Gruppe 3. die Kombination von Gruppe 1 und 3 weist als Indikatorart auch noch *Cirsium arvense* auf. Gruppe 4 hat als Indikatorart *Rorippa amphibia* und *Alopecurus geniculatus*. *Phalaris arundinacea* ist die Indikatorart der Gruppen 1, 2 und 4. Da es sich dabei um einen Nässezeiger handelt, verbindet die Gruppen vermutlich ein hohe Feuchtigkeit als Umweltfaktor.
+
+## 6. Diskussion
+
+Der Vergleich der verschiedenen Methoden der Multivariaten Statistik haben meist zu ähnlichen Ergebnissen der Dimensionsreduzierung geführt, was zeigt, dass sich die Vegetationsdaten relativ gut auf weniger Dimensionen reduzieren lassen und die verschiedenen Methoden relativ robust sind. Vermutlich hat bei den Flächen, die deutlich höhere mittlere Feuchtezahlen aufweisen, eine Vernässung stattgefunden. Das sind auch die Flächen, deren Position innerhalb der NMDS sich im Verlauf der beiden Jahre markant geändert hat, wenn man den Vorzeichenwechsel der ersten Dimension außer Betracht lässt. Diese Flächen bilden außerdem eigene Cluster aus und zeigen die entsprechenden Indikatorarten. Ein Teil der Flächen hat sich zwischen 1994 und 1995 z.B. durch höhere Feuchtigkeiten stark verändert, während bei anderen die Umweltvariablen ähnlich geblieben zu sein scheinen.
+
+## Literatur
+
+1.  FloraWeb - *Phalaris arundinacea*: <https://www.floraweb.de/php/artenhome.php?suchnr=4206>
+2.  BayernFlora - *Phalaris arundinacea*: <https://daten.bayernflora.de/de/info_pflanzen.php?taxnr=4206#name=4206,yearGrouping=1,map=7/39.354/-23.293>
+3.  Floraweb - *Cirsium arvense*: <https://www.floraweb.de/php/artenhome.php?suchnr=1557>
+4.  BayernFlora - *Cirsium arvense*: <https://daten.bayernflora.de/de/info_pflanzen.php?taxnr=1557#name=1557,yearGrouping=1,map=5.5/47.557/10.008>
+5.  FloraWeb - *Urtica dioica*: <https://www.floraweb.de/php/artenhome.php?suchnr=6145>
+6.  BayernFlora - *Urtica dioica*: <https://daten.bayernflora.de/de/info_pflanzen.php?taxnr=6145#name=6145,yearGrouping=1,map=2/54.3/105.9>
+7.  Zeigerwerte von Pflanzen in Mitteleuropa, 1992 - Ellenberg, Heinz; Weber, Heinrich E.; Düll, Ruprecht; Wirth, Volkmar; Werner, Willy (Scripta Geobotanica 18)
+8.  K-Medoids Clustering, 2011 - Jin, X.; Han, J. (Sammut, C., Webb, G.I. (eds) Encyclopedia of Machine Learning. Springer, Boston, MA.) <https://link.springer.com/referenceworkentry/10.1007/978-0-387-30164-8_426>
+9.  BayernFlora - *Rumex acetosa*: <https://daten.bayernflora.de/de/info_pflanzen.php?taxnr=5073>
+10. BayernFlora - *Holcus lanatus*: <https://daten.bayernflora.de/de/info_pflanzen.php?taxnr=2969#name=2969,yearGrouping=1,map=5/45.581/6.509>
